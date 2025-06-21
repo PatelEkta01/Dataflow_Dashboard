@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>DataFlow Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 40px; }
+    canvas { max-width: 700px; margin: 20px auto; }
+  </style>
+</head>
+<body>
+  <h2>📊 DataFlow Dashboard</h2>
+
+  <input type="file" id="fileInput" accept=".csv">
+  <button onclick="uploadFile()">Upload CSV</button>
+
+  <hr>
+
+  <button onclick="loadData()">Load Data</button>
+  <br><br>
+
+  <label for="xField">X-Axis:</label>
+  <select id="xField"></select>
+
+  <label for="yField">Y-Axis:</label>
+  <select id="yField"></select>
+
+  <button onclick="drawChart()">Draw Chart</button>
+
+  <canvas id="chartCanvas"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const apiEndpoint = "https://p4qqt7ydgi.execute-api.us-east-1.amazonaws.com/prod/get-data";
+    const uploadBucket = "dataflow-dashboard-uploads";
+    let globalData = [];
+
+    async function uploadFile() {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) return alert("Please select a CSV file.");
+
+      const uploadUrl = `https://${uploadBucket}.s3.amazonaws.com/${file.name}`;
+
+      await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "text/csv" },
+        body: file,
+      });
+
+      alert("✅ File uploaded! Please wait 5–10 seconds, then load data.");
+    }
+
+    async function loadData() {
+      const res = await fetch(apiEndpoint);
+      globalData = await res.json();
+
+      if (!Array.isArray(globalData) || globalData.length === 0) {
+        alert("No data found.");
+        return;
+      }
+
+      // Dynamically populate field options
+      const sample = globalData[0];
+      const keys = Object.keys(sample).filter(k => k !== "record_id");
+
+      const xSel = document.getElementById("xField");
+      const ySel = document.getElementById("yField");
+      xSel.innerHTML = "";
+      ySel.innerHTML = "";
+
+      keys.forEach(k => {
+        const optX = document.createElement("option");
+        optX.value = k;
+        optX.text = k;
+        xSel.appendChild(optX);
+
+        const optY = document.createElement("option");
+        optY.value = k;
+        optY.text = k;
+        ySel.appendChild(optY);
+      });
+    }
+
+  function drawChart() {
+  const xField = document.getElementById("xField").value;
+  const yField = document.getElementById("yField").value;
+
+  if (!xField || !yField) return alert("Please select both X and Y fields.");
+  if (!globalData.length) return alert("No data loaded. Click 'Load Data' first.");
+
+  const labels = globalData.map(d => d[xField]);
+  const values = globalData.map(d => {
+    const num = parseFloat(d[yField]);
+    return isNaN(num) ? null : num;
+  });
+
+  // Filter out any invalid rows
+  const cleanedLabels = [];
+  const cleanedValues = [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] !== null) {
+      cleanedLabels.push(labels[i]);
+      cleanedValues.push(values[i]);
+    }
+  }
+
+  if (cleanedValues.length === 0) {
+    alert("Selected Y-axis field is not numeric. Try choosing a different column.");
+    return;
+  }
+
+  const ctx = document.getElementById("chartCanvas").getContext("2d");
+
+  // Clear previous chart if any
+  if (window.chartInstance) {
+    window.chartInstance.destroy();
+  }
+
+  window.chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: cleanedLabels,
+      datasets: [{
+        label: `${yField} by ${xField}`,
+        data: cleanedValues,
+        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+}
+
+  </script>
+</body>
+
+</html>
