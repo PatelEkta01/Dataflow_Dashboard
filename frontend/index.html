@@ -1,35 +1,47 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DataFlow Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    body { font-family: sans-serif; text-align: center; margin: 40px; }
-    canvas { max-width: 700px; margin: 20px auto; }
-  </style>
 </head>
 <body>
-  <h2>📊 DataFlow Dashboard</h2>
+  <div class="container">
+    <h1>📊 DataFlow Dashboard</h1>
 
-  <input type="file" id="fileInput" accept=".csv">
-  <button onclick="uploadFile()">Upload CSV</button>
+    <div class="section">
+      <h2>Upload CSV</h2>
+      <input type="file" id="fileInput" accept=".csv">
+      <button onclick="uploadFile()">Upload</button>
+    </div>
 
-  <hr>
+    <div class="section">
+      <h2>Create Chart</h2>
+      <button onclick="loadData()">Load Data</button>
+      
+      <div class="controls">
+        <div>
+          <label>X-Axis:</label>
+          <select id="xField"></select>
+        </div>
+        <div>
+          <label>Y-Axis:</label>
+          <select id="yField"></select>
+        </div>
+        <button onclick="drawChart()">Draw Chart</button>
+      </div>
+    </div>
 
-  <button onclick="loadData()">Load Data</button>
-  <br><br>
+    <div class="section">
+      <canvas id="chartCanvas"></canvas>
+    </div>
 
-  <label for="xField">X-Axis:</label>
-  <select id="xField"></select>
+    <div class="section">
+      <div id="summary"></div>
+    </div>
+  </div>
 
-  <label for="yField">Y-Axis:</label>
-  <select id="yField"></select>
-
-  <button onclick="drawChart()">Draw Chart</button>
-
-  <canvas id="chartCanvas"></canvas>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const apiEndpoint = "https://p4qqt7ydgi.execute-api.us-east-1.amazonaws.com/prod/get-data";
     const uploadBucket = "dataflow-dashboard-uploads";
@@ -39,6 +51,7 @@
       const file = document.getElementById("fileInput").files[0];
       if (!file) return alert("Please select a CSV file.");
 
+      globalData = [];
       const uploadUrl = `https://${uploadBucket}.s3.amazonaws.com/${file.name}`;
 
       await fetch(uploadUrl, {
@@ -47,11 +60,12 @@
         body: file,
       });
 
-      alert("✅ File uploaded! Please wait 5–10 seconds, then load data.");
+      alert("✅ File uploaded! Please wait 5 seconds while the system processes it...");
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
     async function loadData() {
-      const res = await fetch(apiEndpoint);
+      const res = await fetch(`${apiEndpoint}?t=${Date.now()}`);
       globalData = await res.json();
 
       if (!Array.isArray(globalData) || globalData.length === 0) {
@@ -59,9 +73,9 @@
         return;
       }
 
-      // Dynamically populate field options
       const sample = globalData[0];
-      const keys = Object.keys(sample).filter(k => k !== "record_id");
+      const ignoredFields = ["record_id", "file_name", "upload_time"];
+      const keys = Object.keys(sample).filter(k => !ignoredFields.includes(k));
 
       const xSel = document.getElementById("xField");
       const ySel = document.getElementById("yField");
@@ -81,63 +95,212 @@
       });
     }
 
-  function drawChart() {
-  const xField = document.getElementById("xField").value;
-  const yField = document.getElementById("yField").value;
+    function drawChart() {
+      const xField = document.getElementById("xField").value;
+      const yField = document.getElementById("yField").value;
+      const summaryEl = document.getElementById("summary");
+      summaryEl.innerHTML = "";
 
-  if (!xField || !yField) return alert("Please select both X and Y fields.");
-  if (!globalData.length) return alert("No data loaded. Click 'Load Data' first.");
+      if (!xField || !yField) return alert("Please select both X and Y fields.");
+      if (!globalData.length) return alert("No data loaded. Click 'Load Data' first.");
 
-  const labels = globalData.map(d => d[xField]);
-  const values = globalData.map(d => {
-    const num = parseFloat(d[yField]);
-    return isNaN(num) ? null : num;
-  });
+      const labels = globalData.map(d => d[xField]);
+      const values = globalData.map(d => {
+        const num = parseFloat(d[yField]);
+        return isNaN(num) ? null : num;
+      });
 
-  // Filter out any invalid rows
-  const cleanedLabels = [];
-  const cleanedValues = [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i] !== null) {
-      cleanedLabels.push(labels[i]);
-      cleanedValues.push(values[i]);
-    }
-  }
-
-  if (cleanedValues.length === 0) {
-    alert("Selected Y-axis field is not numeric. Try choosing a different column.");
-    return;
-  }
-
-  const ctx = document.getElementById("chartCanvas").getContext("2d");
-
-  // Clear previous chart if any
-  if (window.chartInstance) {
-    window.chartInstance.destroy();
-  }
-
-  window.chartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: cleanedLabels,
-      datasets: [{
-        label: `${yField} by ${xField}`,
-        data: cleanedValues,
-        backgroundColor: 'rgba(54, 162, 235, 0.5)',
-        borderColor: 'rgba(54, 162, 235, 1)',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      responsive: true,
-      scales: {
-        y: { beginAtZero: true }
+      const cleanedLabels = [];
+      const cleanedValues = [];
+      for (let i = 0; i < values.length; i++) {
+        if (values[i] !== null) {
+          cleanedLabels.push(labels[i]);
+          cleanedValues.push(values[i]);
+        }
       }
-    }
-  });
-}
 
+      if (cleanedValues.length === 0) {
+        alert("Selected Y-axis field is not numeric. Try choosing a different column.");
+        return;
+      }
+
+      const ctx = document.getElementById("chartCanvas").getContext("2d");
+      if (window.chartInstance) window.chartInstance.destroy();
+
+      window.chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: cleanedLabels,
+          datasets: [{
+            label: `${yField} by ${xField}`,
+            data: cleanedValues,
+            backgroundColor: '#6366f1',
+            borderColor: '#4f46e5',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      // Summary
+      const stats = {
+        totalRecords: cleanedValues.length,
+        uniqueX: [...new Set(cleanedLabels)].length,
+        yMin: Math.min(...cleanedValues),
+        yMax: Math.max(...cleanedValues),
+      };
+
+      let bestLabel = null;
+      let bestAvg = -Infinity;
+      let worstLabel = null;
+      let worstAvg = Infinity;
+
+      const groupStats = {};
+      for (let i = 0; i < cleanedLabels.length; i++) {
+        const label = cleanedLabels[i];
+        const value = cleanedValues[i];
+        if (!groupStats[label]) groupStats[label] = { total: 0, count: 0 };
+        groupStats[label].total += value;
+        groupStats[label].count += 1;
+      }
+
+      for (const label in groupStats) {
+        const avg = groupStats[label].total / groupStats[label].count;
+        if (avg > bestAvg) {
+          bestAvg = avg;
+          bestLabel = label;
+        }
+        if (avg < worstAvg) {
+          worstAvg = avg;
+          worstLabel = label;
+        }
+      }
+
+      summaryEl.innerHTML = `
+        <h3>Summary</h3>
+        <p><strong>Records:</strong> ${stats.totalRecords}</p>
+        <p><strong>Unique ${xField}:</strong> ${stats.uniqueX}</p>
+        <p><strong>Highest avg:</strong> ${bestLabel} (${bestAvg.toFixed(2)})</p>
+        <p><strong>Lowest avg:</strong> ${worstLabel} (${worstAvg.toFixed(2)})</p>
+        <p><strong>Range:</strong> ${stats.yMin.toFixed(2)} → ${stats.yMax.toFixed(2)}</p>
+      `;
+    }
   </script>
 </body>
-
 </html>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f8fafc;
+  color: #1e293b;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 2rem;
+  font-size: 2rem;
+  color: #1e293b;
+}
+
+.section {
+  background: white;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+h2 {
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  color: #374151;
+}
+
+h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+  color: #374151;
+}
+
+input[type="file"] {
+  margin-right: 1rem;
+  padding: 0.5rem;
+}
+
+select {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+button {
+  background: #6366f1;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+button:hover {
+  background: #4f46e5;
+}
+
+.controls {
+  display: flex;
+  gap: 1rem;
+  align-items: end;
+  margin-top: 1rem;
+}
+
+.controls > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+label {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+canvas {
+  max-width: 100%;
+  height: 400px;
+}
+
+#summary p {
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .controls > div {
+    width: 100%;
+  }
+}
+</style>
